@@ -1,8 +1,25 @@
+# A rich hierarchy of matrix classes, including triangular, symmetric, 
+# and diagonal matrices, both dense and sparse and with pattern, 
+# logical and numeric entries. 
 library(Matrix)
+
+# The Bioconductor BiomaRt R package is a quick, easy and powerful way 
+# to access BioMart
 library(biomaRt)
+
 library(ggplot2)
 
-path2data  <- "/data1/ivanir/Ilaria2021/data/"
+library(viridis)
+
+rm(list=ls())
+
+# My setup
+outdir = "/Users/swingett/Documents/LMB_Bioinformatics_Work/Ivan/Single_Cell_Practice/processing/"
+
+#path2data  <- "/data1/ivanir/Ilaria2021/data/"
+path2data  <- "/Users/swingett/Documents/LMB_Bioinformatics_Work/Ivan/Single_Cell_Practice/input_data/"
+
+# Presumably this is Velocyte output
 spliced    <- readMM(paste0(path2data, "spliced_matrix.mtx"))
 unspliced  <- readMM(paste0(path2data, "unspliced_matrix.mtx"))
 genes      <- readLines(paste0(path2data, "gene_ids_loom.csv"))
@@ -26,23 +43,26 @@ sample_names <- c(
   "B8Unembed_B" = 12
 )
 
+
+# Get the sample names from the barcodes
+# It seems as though B8Unembed_A and B8Unembed_B were both named 
+# B8Unembed
 samples   <- unlist(lapply(strsplit(barcodes, split = ":"), function(x) {x[1]}))
 samples[21436:23082] <- paste0(samples[21436:23082],"_A")
 samples[39618:43478] <- paste0(samples[39618:43478],"_B")
 
+# Determine the sequencing run for each of the samples
+# i.e. SLX-19865 or SLX-20646
 sequencing.round <- rep("SLX-19865", length(samples))
 sequencing.round[samples %in% names(sample_names[9:12])] <- "SLX-20646"
 
 ## Library size
-
 lib.sizes <- colSums(counts)
 
 ## Library complexity
-
 ngenes    <- colSums(counts > 0)
 
 ## Mitochondrial gene expression
-
 ensembl <- useEnsembl(biomart = "ensembl",  dataset = "hsapiens_gene_ensembl", mirror = "useast")
 
 gene_map  <- getBM(attributes=c("ensembl_gene_id", "hgnc_symbol", "chromosome_name"),
@@ -61,7 +81,7 @@ plot_df <- data.frame(
 )
 
 # UMIs by sequencing round
-pdf("/data1/ivanir/Ilaria2021/QC/UMIsByBatch.pdf")
+pdf(paste0(outdir, "UMIsByBatch.pdf"))
 ggplot(plot_df, aes (x = factor(batch), y = lib.size)) +
   geom_boxplot() +
   theme_bw() + 
@@ -71,7 +91,7 @@ ggplot(plot_df, aes (x = factor(batch), y = lib.size)) +
 dev.off()
 
 # Cell complexity thresholding
-pdf("/data1/ivanir/Ilaria2021/QC/cell_complexity.pdf")
+pdf(paste0(outdir, "cell_complexity.pdf"))
 qplot(lib.sizes, ngenes, col = ifelse(ngenes < 500, "drop", "keep")) +
   scale_x_log10() +
   scale_y_log10() +
@@ -110,7 +130,7 @@ mt.lim <- min(mt.fraction[which(p.adjust(mt.p, method = "fdr") < 0.05)])
 
 # Threhdold
 mt.lim
-[1] 0.004136505
+
             
 qplot(lib.sizes, mt.fraction, col = ifelse(mt.fraction>mt.lim, "drop", "keep")) +
   scale_x_log10() +
@@ -118,7 +138,7 @@ qplot(lib.sizes, mt.fraction, col = ifelse(mt.fraction>mt.lim, "drop", "keep")) 
   theme_minimal() + 
   theme(text = element_text(size=20),legend.position = "none")  +
   scale_color_manual(values = c("drop" = "grey50", "keep" = "black"), name = "")
-ggsave("/data1/ivanir/Ilaria2021/QC/mtreadfraction.pdf")
+ggsave(paste0(outdir, "mtreadfraction.pdf"))
 
 filter.cell.2 <- mt.fraction > mt.lim
 
@@ -140,8 +160,9 @@ plot_df_filtered$sample <- factor(plot_df_filtered$sample, levels = correct_samp
 ggplot(plot_df_filtered, aes(fill=filter.cell, y=1, x=sample)) +
     geom_bar(position="fill", stat="identity") +
     scale_fill_viridis(discrete = T, option = "E", name = "Filter cell") + 
-    ylab("Fraction of cells removed by stress signals") + xlab("Sample")
-ggsave("/data1/ivanir/Ilaria2021/QC/mt_fraction_reomval.pdf")
+    ylab("Fraction of cells removed by stress signals") + xlab("Sample") + 
+  theme(axis.text.x = element_text(angle = 90))
+ggsave(paste0(outdir, "mt_fraction_reomval.pdf"))
 
 counts      <- counts[, mt.fraction < mt.lim]
 barcodes    <- barcodes[mt.fraction < mt.lim]
@@ -160,27 +181,29 @@ ggplot(plot_df_filtered, aes(x = factor(sample), y = lib.size)) +
   geom_boxplot() +
   theme_bw() +
   scale_y_log10() +
-  labs(x = "Sample", y = "Number of UMIs")
-ggsave("/data1/ivanir/Ilaria2021/QC/UMIsBySample.pdf")
+  labs(x = "Sample", y = "Number of UMIs") + 
+  theme(axis.text.x = element_text(angle = 90))
+ggsave(paste0(outdir, "UMIsBySample.pdf"))
 
 #####
 ##### Export post-qc data
 meta <- data.frame(cell = barcodes, sequencing.round = sequencing.round, sample = samples, mt.fraction = mt.fraction,  lib.size = lib.sizes, n.genes
 )
 
-writeMM(counts, file = paste0(path2data, "raw_counts_qc.mtx"))
+writeMM(counts, file = paste0(outdir, "raw_counts_qc.mtx"))
 
-write.table(meta, file = paste0(path2data, "meta_qc.tab"),
+write.table(meta, file = paste0(outdir, "meta_qc.tab"),
   row.names = F, col.names = T, quote = F, sep = "\t")
  
 #####
 ##### Export pre-qc data
 
-writeMM(spliced + unspliced, file = paste0(path2data, "raw_counts_preqc.mtx"))
+writeMM(spliced + unspliced, file = paste0(outdir, "raw_counts_preqc.mtx"))
 
 cells   <- readLines(paste0(path2data, "barcodes_loom.csv"))
 qc.filter.pass <- cells %in% meta$cell
 plot_df <- cbind(cell = cells, plot_df, qc.filter.pass)
-write.table(plot_df, file = paste0(path2data, "meta_preqc.tab"),
+write.table(plot_df, file = paste0(outdir, "meta_preqc.tab"),
   row.names = F, col.names = T, quote = F, sep = "\t")
 
+print("Done")
